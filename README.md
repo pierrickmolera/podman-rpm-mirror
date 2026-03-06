@@ -62,5 +62,9 @@ CentOS 10 BaseOS + EPEL 10, x86_64 only, no source, no debug RPM, takes about 32
 
 ## Authors
 
-- Claude Code
+- Claude Code to skaffold the project
 - Nicolas Massé
+
+## License
+
+MIT License.
