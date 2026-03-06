@@ -1,8 +1,8 @@
 FROM replaceme:latest
 
 # Variables for URLs and versions
-ARG CENTOS_VERSION=10 \
-    EPEL_VERSION=10 \
+ARG CENTOS_VERSION=9 \
+    EPEL_VERSION=9 \
     RSYNC_MIRROR=rsync://mirror.in2p3.fr \
     CENTOS_PATH=/pub/linux/centos-stream \
     EPEL_PATH=/pub/epel
@@ -14,8 +14,10 @@ COPY rsync-excludes.txt /etc/rsync-excludes.txt
 RUN <<EOR
 set -Eeuo pipefail
 mkdir -p /var/www/centos/${CENTOS_VERSION}-stream
+mkdir -p /var/www/centos/SIGs/${CENTOS_VERSION}-stream/extras
 mkdir -p /var/www/epel/${EPEL_VERSION}
 RSYNC_OPTS="-azH --progress --delete --exclude-from=/etc/rsync-excludes.txt"
 rsync ${RSYNC_OPTS} ${RSYNC_MIRROR}${CENTOS_PATH}/${CENTOS_VERSION}-stream/ /var/www/centos/${CENTOS_VERSION}-stream/
+rsync ${RSYNC_OPTS} ${RSYNC_MIRROR}${CENTOS_PATH}/SIGs/${CENTOS_VERSION}-stream/extras/ /var/www/centos/SIGs/${CENTOS_VERSION}-stream/extras/
 rsync ${RSYNC_OPTS} ${RSYNC_MIRROR}${EPEL_PATH}/${EPEL_VERSION}/ /var/www/epel/${EPEL_VERSION}/
 EOR

@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 # The version of CentOS Stream to mirror.
-declare CENTOS_VERSION="10"
+declare CENTOS_VERSION="9"
 declare EPEL_VERSION="${EPEL_VERSION:-${CENTOS_VERSION}}"
 
 # Sync process configuration
