@@ -16,10 +16,14 @@ PODMAN_ARGS+=( -t "localhost/mirrors/centos-stream-${CENTOS_VERSION}:${TS}" )
 # Run rsync on the previous dataset if available, to speed up transfer and save on storage.
 if podman image inspect "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest" &>/dev/null; then
   PODMAN_ARGS+=( --from "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest" )
+  PODMAN_ARGS+=( --file Containerfile.sync )
+else
+  PODMAN_ARGS+=( --file Containerfile.base )
 fi
 
 # Build the image.
 # Note: during the build, the repositories will be synced and the result will be stored in the image.
+echo podman build "${PODMAN_ARGS[@]}" .
 podman build "${PODMAN_ARGS[@]}" .
 podman tag "localhost/mirrors/centos-stream-${CENTOS_VERSION}:${TS}" "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest"
 

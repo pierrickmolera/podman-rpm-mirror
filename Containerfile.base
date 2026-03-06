@@ -1,0 +1,14 @@
+FROM registry.fedoraproject.org/fedora:latest
+
+# Install required tools
+RUN dnf install -y rsync nginx && \
+    dnf clean all
+
+# Configure nginx
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Expose port 8080
+EXPOSE 8080
+
+# Start nginx in foreground mode
+CMD ["nginx", "-g", "daemon off;"]
