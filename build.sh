@@ -2,36 +2,40 @@
 
 set -Eeuo pipefail
 
-# Compute podman command line arguments
-declare -a PODMAN_ARGS=()
-
-# Inject the desired CentOS Stream version as build arguments
+# The version of CentOS Stream to mirror.
 declare CENTOS_VERSION="10"
-PODMAN_ARGS+=( --build-arg CENTOS_VERSION="${CENTOS_VERSION}" --build-arg EPEL_VERSION="${CENTOS_VERSION}" )
+
+##
+## First stage: build the base image with the necessary tools to synchronize the repositories.
+##
+if ! podman image inspect "localhost/mirrors/centos-stream-${CENTOS_VERSION}:base" &>/dev/null; then
+  # Compute podman command line arguments
+  declare -a PODMAN_ARGS=()
+  PODMAN_ARGS+=( --file Containerfile.base )
+  PODMAN_ARGS+=( -t "localhost/mirrors/centos-stream-${CENTOS_VERSION}:base" )
+  podman build "${PODMAN_ARGS[@]}" .
+fi
+
+##
+## Second stage: build the image with the synchronized repositories.
+##
+if ! podman image inspect "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest" &>/dev/null; then
+  podman tag "localhost/mirrors/centos-stream-${CENTOS_VERSION}:base" "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest"
+fi
 
 # Tag the resulting image with the current date
 declare TS="$(date -I)"
+
+# Compute podman command line arguments
+declare -a PODMAN_ARGS=()
+PODMAN_ARGS+=( --build-arg CENTOS_VERSION="${CENTOS_VERSION}" --build-arg EPEL_VERSION="${CENTOS_VERSION}" )
+PODMAN_ARGS+=( --file Containerfile.sync )
+PODMAN_ARGS+=( --from "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest" )
 PODMAN_ARGS+=( -t "localhost/mirrors/centos-stream-${CENTOS_VERSION}:${TS}" )
-
-# Run rsync on the previous dataset if available, to speed up transfer and save on storage.
-declare -a REBUILD=false
-if podman image inspect "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest" &>/dev/null; then
-  PODMAN_ARGS+=( --from "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest" )
-  PODMAN_ARGS+=( --file Containerfile.sync )
-else
-  PODMAN_ARGS+=( --file Containerfile.base )
-  REBUILD=true
-fi
-
-# Build the image.
-# Note: during the build, the repositories will be synced and the result will be stored in the image.
 podman build "${PODMAN_ARGS[@]}" .
-podman tag "localhost/mirrors/centos-stream-${CENTOS_VERSION}:${TS}" "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest"
 
-# If the base image has been built, restart the build to synchronize the repositories with the latest data.
-if [[ "$REBUILD" == "true" ]]; then
-  exec "${BASH_SOURCE[0]}"
-fi
+# Tag the image with "latest" as well.
+podman tag "localhost/mirrors/centos-stream-${CENTOS_VERSION}:${TS}" "localhost/mirrors/centos-stream-${CENTOS_VERSION}:latest"
 
 # Here you can add the "podman push" command to send the mirror to your registry.
 # Do not forget to disable layer compression otherwise the push & pull operations
