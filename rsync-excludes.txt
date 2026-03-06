@@ -1,0 +1,33 @@
+# ISO images
+#*.iso
+#*.img
+#*-CHECKSUM
+
+# Temporary files
+.~tmp~/
+**/.tmp/
+
+# Select CentOS Stream repositories to exclude
+# **/AppStream/**
+# **/BaseOS/**
+# **/CRB/**
+**/HighAvailability/**
+**/NFV/**
+# **/RT/**
+
+# Select EPEL repositories to exclude
+# **/Everything/**
+
+# Exclude sources ?
+**/source/**
+
+# Exclude debug RPM ?
+**/debug/**
+
+# Select specific architectures to exclude
+**/i686/**
+**/aarch64/**
+**/ppc64le/**
+**/s390x/**
+# **/x86_64/**
+# **/noarch/**
