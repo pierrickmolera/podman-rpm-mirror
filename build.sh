@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 # The version of CentOS Stream to mirror.
-declare CENTOS_VERSION="10"
+declare CENTOS_VERSION="9"
 
 ##
 ## First stage: build the base image with the necessary tools to synchronize the repositories.
