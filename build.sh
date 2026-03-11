@@ -54,11 +54,24 @@ fi
 # Expect unprivileged buildah, so it is mandatory to run the sync script from an dedicated user namespace.
 echo "Starting synchronization in a modified user namespace..."
 export CENTOS_VERSION EPEL_VERSION RSYNC_MIRROR CENTOS_PATH EPEL_PATH RSYNC_OPTS
-buildah unshare --mount=BUILDAH_ROOT="$BUILDAH_CONTAINER_NAME" "${BASH_SOURCE[0]%/*}/sync.sh"
+if [ $UID -eq 0 ]; then
+  function cleanup {
+    if [ -n "$container_to_umount" ]; then
+      buildah umount "$container_to_umount" || true
+    fi
+  }
+  trap cleanup EXIT
+  export BUILDAH_ROOT=$(buildah mount "$BUILDAH_CONTAINER_NAME")
+  container_to_umount="$BUILDAH_CONTAINER_NAME"
+  "${BASH_SOURCE[0]%/*}/sync.sh"
+else
+  buildah unshare --mount=BUILDAH_ROOT="$BUILDAH_CONTAINER_NAME" "${BASH_SOURCE[0]%/*}/sync.sh"
+fi
 
 # Finalize the image
 echo "Creating final image ${IMAGE_BASE} with tag ${IMAGE_TAG} + latest..."
 buildah umount "$BUILDAH_CONTAINER_NAME"
+container_to_umount="" # Unset the variable so that the cleanup function does not try to unmount it again.
 buildah commit --quiet "$BUILDAH_CONTAINER_NAME" "${IMAGE_BASE}:${IMAGE_TAG}"
 buildah tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
 buildah rm "$BUILDAH_CONTAINER_NAME"
