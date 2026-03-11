@@ -1,7 +1,7 @@
 FROM registry.fedoraproject.org/fedora:latest
 
 # Install required tools
-RUN dnf install -y rsync nginx && \
+RUN dnf install -y nginx && \
     dnf clean all
 
 # Configure nginx

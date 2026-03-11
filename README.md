@@ -8,21 +8,21 @@ Create & serve the mirror.
 
 ```sh
 # Pre-requisites
-sudo dnf install -y podman buildah skopeo curl lorax
+sudo dnf install -y podman buildah skopeo curl lorax rsync
 
 # Create a local mirror of CentOS Stream 10
-sudo ./build.sh
+./build.sh
 
 # Serve the mirror on port 8080
-sudo podman run -d --rm --name mirror-centos-stream-10-$(date -I) -p 8080:8080 localhost/mirrors/centos-stream-10:$(date -I)
+podman run -d --rm --name mirror-centos-stream-10-$(date -I) -p 8080:8080 localhost/mirrors/centos-stream-10:$(date -I)
 
 # Mirror is alive!
 curl http://localhost:8080/centos/10-stream/BaseOS/x86_64/iso/SHA256SUM
 
 # Archive the mirror for posterity
-sudo podman save --output centos-stream-10-$(date -I) --format oci-dir --uncompressed localhost/mirrors/centos-stream-10:$(date -I)
-sudo podman tag localhost/mirrors/centos-stream-10:$(date -I) quay.io/nmasse-redhat/centos-stream-10:$(date -I)
-sudo buildah push --disable-compression quay.io/nmasse-redhat/centos-stream-10:$(date -I)
+podman save --output centos-stream-10-$(date -I) --format oci-dir --uncompressed localhost/mirrors/centos-stream-10:$(date -I)
+podman tag localhost/mirrors/centos-stream-10:$(date -I) quay.io/nmasse-redhat/centos-stream-10:$(date -I)
+buildah push --disable-compression quay.io/nmasse-redhat/centos-stream-10:$(date -I)
 
 # Install a VM from this mirror using Kickstart
 sudo mkdir -p /var/lib/libvirt/images/test-centos10
