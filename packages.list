@@ -1,0 +1,100 @@
+# Source de vérité pour les packages à miroir et à inclure dans l'ISO.
+# Modifier ce fichier pour ajouter/retirer des packages, puis relancer build.sh.
+#
+# Syntaxe :
+#   -pkg    → exclure ce package (ex: -kernel pour forcer kernel-rt)
+#   pkg     → package individuel
+#
+# Note : @^minimal-environment n'est pas résolvable via --repofrompath.
+# Les packages équivalents sont listés explicitement ci-dessous.
+
+## Système de base (équivalent @^minimal-environment / @core)
+## Ces packages seraient normalement installés par le groupe mais doivent
+## être listés explicitement pour la résolution dnf download.
+basesystem
+filesystem
+setup
+bash
+coreutils
+shadow-utils
+passwd
+rootfiles
+glibc
+systemd
+dbus
+NetworkManager
+iproute
+iputils
+hostname
+openssh-server
+openssh-clients
+curl-minimal
+firewalld
+audit
+selinux-policy-targeted
+policycoreutils
+authselect
+crypto-policies
+dracut
+initscripts
+grub2-tools
+grubby
+e2fsprogs
+lvm2
+xfsprogs
+parted
+util-linux
+procps-ng
+less
+man-db
+ncurses
+vim-minimal
+tar
+kbd
+kexec-tools
+rsyslog
+logrotate
+tuned
+sudo
+sssd-common
+python3
+dnf
+rpm
+
+## Noyau temps-réel (remplace le noyau standard)
+-kernel
+-kernel-core
+-kernel-modules
+-kernel-modules-extra
+kernel-rt
+kernel-rt-core
+kernel-rt-devel
+kernel-rt-modules-extra
+
+## Gestion des conteneurs
+podman
+podman-compose
+
+## Virtualisation
+qemu-kvm
+libvirt
+libguestfs-tools
+virt-install
+
+## Tests temps-réel et charge
+realtime-tests
+stress
+stress-ng
+irqbalance
+
+## Outils système
+screen
+htop
+hwloc
+git
+make
+gcc
+tcpdump
+
+## EPEL
+epel-release

@@ -2,78 +2,90 @@
 
 set -Eeuo pipefail
 
-# The version of CentOS Stream to mirror.
+# Version de CentOS Stream à miroir.
 declare CENTOS_VERSION="9"
 declare EPEL_VERSION="${EPEL_VERSION:-${CENTOS_VERSION}}"
+declare ARCH="${ARCH:-x86_64}"
 
-# Sync process configuration
+# Miroirs upstream (modifiables via variables d'environnement)
+declare UPSTREAM_CENTOS="${UPSTREAM_CENTOS:-https://mirror.stream.centos.org}"
+declare UPSTREAM_EPEL="${UPSTREAM_EPEL:-https://dl.fedoraproject.org/pub/epel}"
+
 declare IMAGE_BASE="localhost/mirrors/centos-stream-${CENTOS_VERSION}"
 declare IMAGE_TAG="$(date -I)"
-declare RSYNC_MIRROR="${RSYNC_MIRROR:-rsync://mirror.in2p3.fr}"
-declare CENTOS_PATH="${CENTOS_PATH:-/pub/linux/centos-stream}"
-declare EPEL_PATH="${EPEL_PATH:-/pub/epel}"
-declare RSYNC_OPTS="-azH --progress --delete --exclude-from=${BASH_SOURCE[0]%/*}/rsync-excludes.txt"
-
-# Pre-requisites
-if ! rsync -V &>/dev/null; then
-  echo "rsync is required on the host to synchronize the repositories. Please install it and try again." >&2
-  exit 1
-fi
 
 ##
-## First stage: build the base image with the necessary tools to synchronize the repositories.
+## Première étape : construire l'image de base si elle n'existe pas.
 ##
 if ! podman image inspect "${IMAGE_BASE}:base" &>/dev/null; then
-  # Compute podman command line arguments
-  declare -a PODMAN_ARGS=()
-  PODMAN_ARGS+=( --file Containerfile.base )
-  PODMAN_ARGS+=( -t "${IMAGE_BASE}:base" )
-  podman build "${PODMAN_ARGS[@]}" .
+  echo "Construction de l'image de base..."
+  podman build \
+    --file Containerfile.base \
+    -t "${IMAGE_BASE}:base" \
+    --security-opt label=disable \
+    .
 fi
 
 ##
-## Second stage: build the image with the synchronized repositories using buildah.
+## Deuxième étape : construire l'image miroir avec les packages sélectionnés.
 ##
 if ! podman image inspect "${IMAGE_BASE}:latest" &>/dev/null; then
   podman tag "${IMAGE_BASE}:base" "${IMAGE_BASE}:latest"
 fi
 
-# TODO: Maybe let the user specify the Buildah container name to be able have different sessions running in parallel?
-# Currently, the container name is deterministic to be able to resume a build if it fails or is interrupted.
-# In that case, the synchronization will be resumed from the last successful step instead of starting from scratch.
-# But, it is assumed that only one build per version of CentOS Stream is running at the same time to avoid conflicts on the container name.
 BUILDAH_CONTAINER_NAME="buildah-sync-centos-${CENTOS_VERSION}"
-if buildah inspect "$BUILDAH_CONTAINER_NAME" &>/dev/null; then
-  echo "Resuming build with existing Buildah container: ${BUILDAH_CONTAINER_NAME}"
+if buildah inspect "${BUILDAH_CONTAINER_NAME}" &>/dev/null; then
+  echo "Reprise du conteneur buildah existant : ${BUILDAH_CONTAINER_NAME}"
 else
-   # Create Buildah container from the base image.
-  echo "Creating Buildah container from ${IMAGE_BASE}:latest..."
-  BUILDAH_CONTAINER_NAME=$(buildah from --name="${BUILDAH_CONTAINER_NAME}" "${IMAGE_BASE}:latest")
+  echo "Création du conteneur buildah depuis ${IMAGE_BASE}:latest..."
+  buildah from --name="${BUILDAH_CONTAINER_NAME}" "${IMAGE_BASE}:latest"
 fi
 
-# Expect unprivileged buildah, so it is mandatory to run the sync script from an dedicated user namespace.
-echo "Starting synchronization in a modified user namespace..."
-export CENTOS_VERSION EPEL_VERSION RSYNC_MIRROR CENTOS_PATH EPEL_PATH RSYNC_OPTS
-if [ $UID -eq 0 ]; then
-  function cleanup {
-    if [ -n "$container_to_umount" ]; then
-      buildah umount "$container_to_umount" || true
+# Préparer le conteneur en résolvant les conflits
+echo "==> Préparation du conteneur (résolution des conflits)..."
+buildah run "${BUILDAH_CONTAINER_NAME}" -- bash -c '
+    if rpm -q coreutils-single &>/dev/null; then
+        dnf swap -y coreutils-single coreutils --allowerasing || 
+        dnf remove -y coreutils-single
     fi
-  }
-  trap cleanup EXIT
-  export BUILDAH_ROOT=$(buildah mount "$BUILDAH_CONTAINER_NAME")
-  container_to_umount="$BUILDAH_CONTAINER_NAME"
-  "${BASH_SOURCE[0]%/*}/sync.sh"
-else
-  buildah unshare --mount=BUILDAH_ROOT="$BUILDAH_CONTAINER_NAME" "${BASH_SOURCE[0]%/*}/sync.sh"
-fi
+'
 
-# Finalize the image
-echo "Creating final image ${IMAGE_BASE} with tag ${IMAGE_TAG} + latest..."
-buildah umount "$BUILDAH_CONTAINER_NAME"
-container_to_umount="" # Unset the variable so that the cleanup function does not try to unmount it again.
-buildah commit --quiet "$BUILDAH_CONTAINER_NAME" "${IMAGE_BASE}:${IMAGE_TAG}"
+
+# Exécuter sync.sh À L'INTÉRIEUR du conteneur.
+# packages.list et sync.sh sont montés en lecture seule le temps de l'exécution.
+# Les packages téléchargés persistent dans la couche inscriptible du conteneur.
+echo "Démarrage du téléchargement des packages..."
+# Chemin absolu requis par buildah run --volume
+SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
+export CENTOS_VERSION EPEL_VERSION ARCH UPSTREAM_CENTOS UPSTREAM_EPEL
+buildah run \
+  --network=host \
+  --env CENTOS_VERSION \
+  --env EPEL_VERSION \
+  --env ARCH \
+  --env UPSTREAM_CENTOS \
+  --env UPSTREAM_EPEL \
+  --volume "${SCRIPT_DIR}/packages.list:/packages.list:ro,z" \
+  --volume "${SCRIPT_DIR}/sync.sh:/sync.sh:ro,z" \
+  "${BUILDAH_CONTAINER_NAME}" \
+  -- bash /sync.sh
+
+# Finaliser l'image
+echo "Création de l'image finale ${IMAGE_BASE}:${IMAGE_TAG}..."
+BUILDAH_TMPDIR="${HOME}/.local/share/buildah-tmp"
+mkdir -p "${BUILDAH_TMPDIR}"
+export TMPDIR="${BUILDAH_TMPDIR}"
+buildah commit --quiet "${BUILDAH_CONTAINER_NAME}" "${IMAGE_BASE}:${IMAGE_TAG}"
 buildah tag "${IMAGE_BASE}:${IMAGE_TAG}" "${IMAGE_BASE}:latest"
-buildah rm "$BUILDAH_CONTAINER_NAME"
+buildah rm "${BUILDAH_CONTAINER_NAME}"
 
-echo "Build complete."
+echo "Build terminé. Image : ${IMAGE_BASE}:${IMAGE_TAG}"
+
+##
+## Troisième étape (optionnelle) : créer l'ISO bootable.
+## Activer avec : CREATE_ISO=1 ./build.sh
+##
+if [ "${CREATE_ISO:-0}" = "1" ]; then
+  export IMAGE_BASE CENTOS_VERSION
+  "${BASH_SOURCE[0]%/*}/create-iso.sh"
+fi

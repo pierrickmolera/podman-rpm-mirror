@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# Ce script s'exécute À L'INTÉRIEUR du conteneur ISO builder.
+# Il est invoqué par create-iso.sh via podman run.
+#
+# Variables d'environnement attendues : CENTOS_VERSION, EPEL_VERSION, ARCH
+# Volumes attendus :
+#   /boot.iso       → boot ISO officiel CentOS Stream (lecture seule)
+#   /kickstart.cfg  → kickstart d'installation
+#   /output         → répertoire de sortie
+
+set -Eeuo pipefail
+
+PACKAGES_URL="http://localhost:8080/packages/"
+
+WORK_DIR="/tmp/iso-work"
+PACKAGES_DIR="${WORK_DIR}/packages"
+ISO_TREE="${WORK_DIR}/iso-tree"
+
+##
+## Étape 1 : Récupérer tous les packages depuis le miroir local.
+## Le miroir contient exactement les packages de packages.list + leurs dépendances,
+## pré-résolus lors du build.sh. Il n'y a pas de résolution à refaire ici.
+##
+echo "==> Récupération des packages depuis le miroir local..."
+mkdir -p "${PACKAGES_DIR}"
+dnf reposync \
+  --repofrompath="mirror,${PACKAGES_URL}" \
+  --repo=mirror \
+  --destdir="${WORK_DIR}/reposync" \
+  --download-metadata
+
+# Aplatir la structure créée par reposync (mirror/Packages/ ou mirror/*.rpm)
+find "${WORK_DIR}/reposync" -name "*.rpm" -exec mv {} "${PACKAGES_DIR}/" \;
+
+echo "==> Génération des métadonnées du dépôt embarqué..."
+createrepo_c "${PACKAGES_DIR}"
+
+##
+## Étape 2 : Extraire le contenu du boot ISO officiel.
+## Le boot ISO contient déjà l'environnement installeur Anaconda — inutile de le reconstruire.
+##
+echo "==> Extraction du boot ISO..."
+mkdir -p "${ISO_TREE}"
+xorriso -osirrox on -indev /boot.iso -extract / "${ISO_TREE}" 2>/dev/null
+chmod -R u+w "${ISO_TREE}"
+
+##
+## Étape 3 : Intégrer les packages dans l'arbre ISO.
+##
+echo "==> Intégration des packages dans l'arbre ISO..."
+cp -r "${PACKAGES_DIR}" "${ISO_TREE}/Packages"
+
+##
+## Étape 4 : Patcher .treeinfo pour déclarer le variant BaseOS.
+## Indique à Anaconda de chercher les packages dans /Packages sur le cdrom.
+##
+echo "==> Mise à jour de .treeinfo..."
+cat >> "${ISO_TREE}/.treeinfo" << 'EOF'
+
+[variant-BaseOS]
+id = BaseOS
+name = BaseOS
+packages = Packages
+repository = .
+type = variant
+uid = BaseOS
+EOF
+
+##
+## Étape 5 : Générer le kickstart offline.
+## Remplace l'URL réseau par cdrom et supprime les directives repo réseau.
+##
+echo "==> Génération du kickstart offline..."
+sed \
+  -e 's|^url --url=.*|cdrom|' \
+  -e '/^repo --name=/d' \
+  /kickstart.cfg > /tmp/kickstart-offline.cfg
+
+##
+## Étape 6 : Reconstruire l'ISO depuis l'arbre patché.
+## Conserve la configuration de boot BIOS + UEFI du boot ISO original.
+##
+echo "==> Reconstruction de l'ISO avec xorriso..."
+xorriso -as mkisofs \
+  -o /output/iso-stage.iso \
+  -R -J -T --joliet-long \
+  -V "CS${CENTOS_VERSION}-Install" \
+  -b isolinux/isolinux.bin \
+  -c isolinux/boot.cat \
+  -no-emul-boot \
+  -boot-load-size 4 \
+  -boot-info-table \
+  --efi-boot images/efiboot.img \
+  -eltorito-alt-boot \
+  -no-emul-boot \
+  "${ISO_TREE}"
+
+##
+## Étape 7 : Injecter le kickstart dans l'ISO.
+## mkksiso ajoute le kickstart et configure le paramètre inst.ks= dans le bootloader.
+##
+echo "==> Injection du kickstart..."
+mkksiso /tmp/kickstart-offline.cfg /output/iso-stage.iso /output/install.iso
+rm /output/iso-stage.iso
+
+echo "==> Création de l'ISO terminée."
